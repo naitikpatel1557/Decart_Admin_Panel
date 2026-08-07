@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "818990584712",
+    "firebase_url": "https://decart-a1ac7-default-rtdb.firebaseio.com",
+    "project_id": "decart-a1ac7",
+    "storage_bucket": "decart-a1ac7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:818990584712:android:37f99197a14605719ca03d",
+        "android_client_info": {
+          "package_name": "com.example.decart_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCWo9LOaDA6cHCVwQWarzJSMVZNYHycNZY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
