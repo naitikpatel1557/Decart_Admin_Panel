@@ -4,8 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 
 // Import the screens we built
-import 'screens/admin_login_screen.dart';
-import 'screens/admin_dashboard_screen.dart';
+import 'admin_login_screen.dart';
+import 'admin_dashboard_screen.dart';
 
 void main() async {
   // 1. Ensure Flutter bindings are initialized before Firebase
