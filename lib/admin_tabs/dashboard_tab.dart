@@ -32,10 +32,19 @@ class _DashboardTabState extends State<DashboardTab> {
 
           final orderDocs = orderSnapshot.data?.docs ?? [];
 
+          // --- OVERALL METRICS ---
           double totalRevenue = 0;
           int deliveredCount = 0;
           int activeCount = 0;
+          int pendingCount = 0; // Total Pending Orders (Placed / Processing)
 
+          // --- TODAY'S METRICS ---
+          double todayRevenue = 0;
+          int todayOrdersCount = 0;
+
+          final now = DateTime.now();
+
+          // --- CHART DATA SETUP ---
           Map<int, double> ordersChartData = {};
           double maxOrdersCount = 5;
           double chartMinX = 0;
@@ -59,18 +68,35 @@ class _DashboardTabState extends State<DashboardTab> {
             final String status = (data['status'] ?? '').toString().toLowerCase();
             final Timestamp? dateStamp = data['orderDate'] ?? data['createdAt'];
 
-            if (status != 'cancelled') totalRevenue += amount;
+            if (status != 'cancelled') {
+              totalRevenue += amount;
+            }
+
             if (status == 'delivered') {
               deliveredCount++;
             } else if (status != 'cancelled') {
               activeCount++;
             }
 
+            // Track Pending Orders
+            if (status == 'placed' || status == 'processing' || status == 'order confirmed') {
+              pendingCount++;
+            }
+
+            // Check if order was placed today
             if (dateStamp != null) {
               DateTime dt = dateStamp.toDate();
 
+              if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+                todayOrdersCount++;
+                if (status != 'cancelled') {
+                  todayRevenue += amount;
+                }
+              }
+
+              // Map to chart modes
               if (_chartViewMode == 'Weekly') {
-                if (DateTime.now().difference(dt).inDays <= 7) {
+                if (now.difference(dt).inDays <= 7) {
                   int dayIndex = dt.weekday == 7 ? 0 : dt.weekday;
                   ordersChartData[dayIndex] = (ordersChartData[dayIndex] ?? 0) + 1;
                   if (ordersChartData[dayIndex]! > maxOrdersCount) maxOrdersCount = ordersChartData[dayIndex]!;
@@ -107,10 +133,14 @@ class _DashboardTabState extends State<DashboardTab> {
                 const Text('Your live performance summary', style: TextStyle(color: Colors.grey, fontSize: 14)),
                 const SizedBox(height: 24),
 
+                // --- TOP STAT CARDS (INCLUDING PENDING ORDERS & TODAY'S METRICS) ---
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
+                      _buildStatCard("Today's Revenue", '₹${todayRevenue.toStringAsFixed(0)}', 'Today', true),
+                      _buildStatCard("Today's Orders", '$todayOrdersCount', 'Today', true),
+                      _buildStatCard('Pending Orders', '$pendingCount', 'Needs Action', pendingCount == 0),
                       _buildStatCard('Total Revenue', '₹${totalRevenue.toStringAsFixed(0)}', 'Active', true),
                       _buildStatCard('Total Orders', '${orderDocs.length}', 'Lifetime', true),
                       StreamBuilder<QuerySnapshot>(
@@ -122,10 +152,15 @@ class _DashboardTabState extends State<DashboardTab> {
                 ),
                 const SizedBox(height: 24),
 
+                // --- LINE CHART WITH CUSTOM TOOLTIP POPUP ---
                 Container(
                   height: 400,
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]),
+                  decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -220,6 +255,51 @@ class _DashboardTabState extends State<DashboardTab> {
                             maxY: maxOrdersCount + 2,
                             minX: chartMinX,
                             maxX: chartMaxX,
+                            // --- TOOLTIP CONFIGURATION ---
+                            lineTouchData: LineTouchData(
+                              enabled: true,
+                              handleBuiltInTouches: true,
+                              touchTooltipData: LineTouchTooltipData(
+                                tooltipBgColor: Colors.white,
+                                tooltipRoundedRadius: 8,
+                                tooltipPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                tooltipBorder: BorderSide(color: Colors.grey.shade300, width: 1),
+                                getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
+                                  return touchedBarSpots.map((barSpot) {
+                                    int xVal = barSpot.x.toInt();
+                                    String dateLabel = '';
+
+                                    if (_chartViewMode == 'Weekly') {
+                                      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                                      if (xVal >= 0 && xVal < days.length) dateLabel = days[xVal];
+                                    } else if (_chartViewMode == 'Monthly') {
+                                      dateLabel = '$xVal ${_months[_selectedMonth - 1]} $_selectedYear';
+                                    } else if (_chartViewMode == 'Annual') {
+                                      if (xVal >= 1 && xVal <= 12) dateLabel = '${_months[xVal - 1]} $_selectedYear';
+                                    }
+
+                                    return LineTooltipItem(
+                                      '$dateLabel\n',
+                                      const TextStyle(
+                                        color: Colors.black87,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      children: [
+                                        TextSpan(
+                                          text: '● Total Orders: ${barSpot.y.toInt()}',
+                                          style: TextStyle(
+                                            color: brandBlue,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  }).toList();
+                                },
+                              ),
+                            ),
                             gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.shade200, strokeWidth: 1)),
                             titlesData: FlTitlesData(
                               rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -250,7 +330,10 @@ class _DashboardTabState extends State<DashboardTab> {
                             lineBarsData: [
                               LineChartBarData(
                                 spots: chartSpots,
-                                isCurved: true, color: brandBlue, barWidth: 3, dotData: FlDotData(show: true),
+                                isCurved: true,
+                                color: brandBlue,
+                                barWidth: 3,
+                                dotData: FlDotData(show: true),
                                 belowBarData: BarAreaData(show: true, color: brandBlue.withOpacity(0.1)),
                               ),
                             ],
@@ -261,6 +344,8 @@ class _DashboardTabState extends State<DashboardTab> {
                   ),
                 ),
                 const SizedBox(height: 24),
+
+                // --- ORDER FULFILLMENT STATUS CARD ---
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(24),
@@ -278,6 +363,8 @@ class _DashboardTabState extends State<DashboardTab> {
                   ),
                 ),
                 const SizedBox(height: 24),
+
+                // --- CIRCULAR PROGRESS METRICS ---
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(24),
@@ -303,7 +390,11 @@ class _DashboardTabState extends State<DashboardTab> {
       width: 140,
       margin: const EdgeInsets.only(right: 16),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -313,9 +404,20 @@ class _DashboardTabState extends State<DashboardTab> {
           const SizedBox(height: 8),
           Row(
             children: [
-              Icon(isPositive ? Icons.check_circle : Icons.warning, color: isPositive ? Colors.green : Colors.orange, size: 12),
+              Icon(
+                  isPositive ? Icons.check_circle : Icons.warning_amber_rounded,
+                  color: isPositive ? Colors.green : Colors.orange,
+                  size: 12
+              ),
               const SizedBox(width: 4),
-              Text(subtext, style: TextStyle(color: isPositive ? Colors.green : Colors.orange, fontSize: 11, fontWeight: FontWeight.bold)),
+              Text(
+                  subtext,
+                  style: TextStyle(
+                      color: isPositive ? Colors.green : Colors.orange,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold
+                  )
+              ),
             ],
           )
         ],

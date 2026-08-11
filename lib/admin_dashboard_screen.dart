@@ -5,6 +5,7 @@ import 'admin_login_screen.dart';
 // Import the separated tabs
 import 'admin_tabs/dashboard_tab.dart';
 import 'admin_tabs/orders_management_tab.dart';
+import 'admin_tabs/all_products_tab.dart'; // NEW IMPORT
 import 'admin_tabs/add_product_tab.dart';
 import 'admin_tabs/users_directory_tab.dart';
 import 'admin_tabs/feedback_support_tab.dart';
@@ -27,16 +28,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       _selectedTabIndex = index;
       _appBarTitle = title;
     });
-    Navigator.pop(context); // Close the drawer
+    Navigator.pop(context); // Close drawer
   }
 
   Widget _buildBody() {
     switch (_selectedTabIndex) {
       case 0: return const DashboardTab();
       case 1: return const OrdersManagementTab();
-      case 2: return const AddProductTab();
-      case 3: return const UsersDirectoryTab();
-      case 4: return const FeedbackSupportTab();
+      case 2: return const AllProductsTab(); // All Products Catalog View
+      case 3: return const AddProductTab();
+      case 4: return const UsersDirectoryTab();
+      case 5: return const FeedbackSupportTab();
       default: return const DashboardTab();
     }
   }
@@ -79,23 +81,30 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               selected: _selectedTabIndex == 1,
               onTap: () => _selectMenu(1, 'Manage Orders'),
             ),
+            // NEW LIST TILE: ALL PRODUCTS
             ListTile(
-              leading: Icon(Icons.add_box, color: _selectedTabIndex == 2 ? brandColor : Colors.grey),
-              title: Text('Add Product', style: TextStyle(fontWeight: _selectedTabIndex == 2 ? FontWeight.bold : FontWeight.normal)),
+              leading: Icon(Icons.inventory_2_outlined, color: _selectedTabIndex == 2 ? brandColor : Colors.grey),
+              title: Text('All Products', style: TextStyle(fontWeight: _selectedTabIndex == 2 ? FontWeight.bold : FontWeight.normal)),
               selected: _selectedTabIndex == 2,
-              onTap: () => _selectMenu(2, 'Add New Product'),
+              onTap: () => _selectMenu(2, 'All Products'),
             ),
             ListTile(
-              leading: Icon(Icons.people, color: _selectedTabIndex == 3 ? brandColor : Colors.grey),
-              title: Text('Users Directory', style: TextStyle(fontWeight: _selectedTabIndex == 3 ? FontWeight.bold : FontWeight.normal)),
+              leading: Icon(Icons.add_box, color: _selectedTabIndex == 3 ? brandColor : Colors.grey),
+              title: Text('Add Product', style: TextStyle(fontWeight: _selectedTabIndex == 3 ? FontWeight.bold : FontWeight.normal)),
               selected: _selectedTabIndex == 3,
-              onTap: () => _selectMenu(3, 'Registered Users'),
+              onTap: () => _selectMenu(3, 'Add New Product'),
             ),
             ListTile(
-              leading: Icon(Icons.forum, color: _selectedTabIndex == 4 ? brandColor : Colors.grey),
-              title: Text('Feedback & Support', style: TextStyle(fontWeight: _selectedTabIndex == 4 ? FontWeight.bold : FontWeight.normal)),
+              leading: Icon(Icons.people, color: _selectedTabIndex == 4 ? brandColor : Colors.grey),
+              title: Text('Users Directory', style: TextStyle(fontWeight: _selectedTabIndex == 4 ? FontWeight.bold : FontWeight.normal)),
               selected: _selectedTabIndex == 4,
-              onTap: () => _selectMenu(4, 'Feedback & Support'),
+              onTap: () => _selectMenu(4, 'Registered Users'),
+            ),
+            ListTile(
+              leading: Icon(Icons.forum, color: _selectedTabIndex == 5 ? brandColor : Colors.grey),
+              title: Text('Feedback & Support', style: TextStyle(fontWeight: _selectedTabIndex == 5 ? FontWeight.bold : FontWeight.normal)),
+              selected: _selectedTabIndex == 5,
+              onTap: () => _selectMenu(5, 'Feedback & Support'),
             ),
             const Divider(),
             ListTile(
