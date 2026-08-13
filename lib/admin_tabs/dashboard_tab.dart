@@ -16,7 +16,22 @@ class _DashboardTabState extends State<DashboardTab> {
   String _chartViewMode = 'Weekly';
   int _selectedMonth = DateTime.now().month;
   int _selectedYear = DateTime.now().year;
-  final List<String> _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  final List<String> _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+
+  // Dynamic Greeting based on time of day
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) {
+      return 'Good Morning';
+    } else if (hour < 17) {
+      return 'Good Afternoon';
+    } else {
+      return 'Good Evening';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -128,7 +143,11 @@ class _DashboardTabState extends State<DashboardTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Good Morning, $emailName', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                // DYNAMIC GREETING BASED ON CURRENT TIME
+                Text(
+                    '${_getGreeting()}, $emailName',
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)
+                ),
                 const SizedBox(height: 4),
                 const Text('Your live performance summary', style: TextStyle(color: Colors.grey, fontSize: 14)),
                 const SizedBox(height: 24),
