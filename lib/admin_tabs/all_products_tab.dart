@@ -21,10 +21,13 @@ class _AllProductsTabState extends State<AllProductsTab> {
 
   // --- EDIT PRODUCT DIALOG ---
   void _showEditProductDialog(String docId, Map<String, dynamic> data) {
-    final titleController = TextEditingController(text: data['title'] ?? data['name'] ?? '');
+    final titleController = TextEditingController(text: data['title'] ?? data['name'] ?? data['productName'] ?? '');
     final priceController = TextEditingController(text: (data['price'] ?? '').toString());
     final categoryController = TextEditingController(text: data['category'] ?? '');
-    final imageUrlController = TextEditingController(text: data['imageUrl'] ?? (data['imageUrls'] != null && (data['imageUrls'] as List).isNotEmpty ? data['imageUrls'][0] : ''));
+    final imageUrlController = TextEditingController(
+      text: data['imageUrl'] ?? data['image'] ?? data['productImage'] ??
+          (data['imageUrls'] != null && (data['imageUrls'] as List).isNotEmpty ? data['imageUrls'][0] : ''),
+    );
     final descriptionController = TextEditingController(text: data['description'] ?? '');
 
     showDialog(
@@ -81,7 +84,7 @@ class _AllProductsTabState extends State<AllProductsTab> {
                       : () async {
                     setDialogState(() => isSaving = true);
                     try {
-                      final double newPrice = double.tryParse(priceController.text.trim()) ?? (data['price'] ?? 0.0).toDouble();
+                      final double newPrice = double.tryParse(priceController.text.trim()) ?? 0.0;
                       await FirebaseFirestore.instance.collection('products').doc(docId).update({
                         'title': titleController.text.trim(),
                         'name': titleController.text.trim(),
@@ -207,11 +210,23 @@ class _AllProductsTabState extends State<AllProductsTab> {
                 return Center(child: Text("Error: ${snapshot.error}"));
               }
 
-              final docs = snapshot.data?.docs ?? [];
+              final docs = List<DocumentSnapshot>.from(snapshot.data?.docs ?? []);
+
+              // Sort newly added documents to the top based on timestamp
+              docs.sort((a, b) {
+                final dataA = a.data() as Map<String, dynamic>;
+                final dataB = b.data() as Map<String, dynamic>;
+                final Timestamp? timeA = dataA['createdAt'] as Timestamp? ?? dataA['timestamp'] as Timestamp?;
+                final Timestamp? timeB = dataB['createdAt'] as Timestamp? ?? dataB['timestamp'] as Timestamp?;
+                if (timeA == null && timeB == null) return 0;
+                if (timeA == null) return -1;
+                if (timeB == null) return 1;
+                return timeB.compareTo(timeA);
+              });
 
               final filteredDocs = docs.where((doc) {
                 final data = doc.data() as Map<String, dynamic>;
-                final title = (data['title'] ?? data['name'] ?? '').toString().toLowerCase();
+                final title = (data['title'] ?? data['name'] ?? data['productName'] ?? '').toString().toLowerCase();
                 final category = (data['category'] ?? '').toString().toLowerCase();
                 if (_searchQuery.isEmpty) return true;
                 return title.contains(_searchQuery) || category.contains(_searchQuery);
@@ -231,10 +246,21 @@ class _AllProductsTabState extends State<AllProductsTab> {
                   final data = doc.data() as Map<String, dynamic>;
                   final String docId = doc.id;
 
-                  final String title = data['title'] ?? data['name'] ?? 'Untitled Product';
-                  final double price = (data['price'] ?? 0.0).toDouble();
+                  final String title = data['title'] ?? data['name'] ?? data['productName'] ?? 'Untitled Product';
+
+                  // Safe price parsing
+                  final rawPrice = data['price'];
+                  final double price = rawPrice is num
+                      ? rawPrice.toDouble()
+                      : double.tryParse(rawPrice?.toString() ?? '0') ?? 0.0;
+
                   final String category = data['category'] ?? 'General';
-                  final String imgUrl = data['imageUrl'] ?? (data['imageUrls'] != null && (data['imageUrls'] as List).isNotEmpty ? data['imageUrls'][0] : '');
+
+                  // Safe image URL fallbacks
+                  final String imgUrl = data['imageUrl'] ??
+                      data['image'] ??
+                      data['productImage'] ??
+                      (data['imageUrls'] != null && (data['imageUrls'] as List).isNotEmpty ? data['imageUrls'][0] : '');
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
