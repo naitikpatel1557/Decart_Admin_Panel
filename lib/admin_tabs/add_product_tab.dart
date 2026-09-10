@@ -1,5 +1,4 @@
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -20,11 +19,10 @@ class _AddProductTabState extends State<AddProductTab> {
   final _stockController = TextEditingController();
   final _customCategoryController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _featuresController = TextEditingController(); // NEW: Features Controller
 
-  Uint8List? _selectedImageBytes;
-  String? _selectedImageName;
-  int? _imageWidth;
-  int? _imageHeight;
+  // Store multiple images up to a max of 5
+  List<Map<String, dynamic>> _selectedImages = [];
   bool _isUploading = false;
 
   final List<String> _categories = [
@@ -57,65 +55,47 @@ class _AddProductTabState extends State<AddProductTab> {
     _stockController.dispose();
     _customCategoryController.dispose();
     _descriptionController.dispose();
+    _featuresController.dispose(); // NEW: Dispose Features Controller
     super.dispose();
   }
 
-  Future<void> _pickAndValidateImage() async {
+  Future<void> _pickImages() async {
+    if (_selectedImages.length >= 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You can only upload a maximum of 5 images per product.'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
     try {
       final ImagePicker picker = ImagePicker();
-      final XFile? file = await picker.pickImage(source: ImageSource.gallery);
+      // Allow multi-selection
+      final List<XFile> files = await picker.pickMultiImage();
 
-      if (file == null) return;
+      if (files.isEmpty) return;
 
-      final Uint8List bytes = await file.readAsBytes();
+      int addedCount = 0;
 
-      // Decode image to check resolution
-      final ui.Codec codec = await ui.instantiateImageCodec(bytes);
-      final ui.FrameInfo frameInfo = await codec.getNextFrame();
-      final int width = frameInfo.image.width;
-      final int height = frameInfo.image.height;
-
-      if (width != 1024 || height != 1024) {
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              title: const Row(
-                children: [
-                  Icon(Icons.error_outline, color: Colors.red),
-                  SizedBox(width: 8),
-                  Text('Invalid Image Resolution', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 16)),
-                ],
-              ),
-              content: Text(
-                'Selected image is ${width}x${height} px.\n\nProduct images must be strictly 1024x1024 pixels. Please resize or select an image with exact 1024x1024 dimensions.',
-                style: const TextStyle(fontSize: 14, height: 1.4),
-              ),
-              actions: [
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: brandColor),
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('OK', style: TextStyle(color: Colors.white)),
-                ),
-              ],
-            ),
-          );
+      for (var file in files) {
+        if (_selectedImages.length >= 5) {
+          break; // Enforce the max 5 limit
         }
-        return;
+
+        final Uint8List bytes = await file.readAsBytes();
+
+        setState(() {
+          _selectedImages.add({
+            'bytes': bytes,
+            'name': file.name,
+          });
+        });
+        addedCount++;
       }
 
-      setState(() {
-        _selectedImageBytes = bytes;
-        _selectedImageName = file.name;
-        _imageWidth = width;
-        _imageHeight = height;
-      });
-
-      if (mounted) {
+      if (mounted && addedCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Image validated successfully (1024x1024 px)!'),
+          SnackBar(
+            content: Text('Added $addedCount image(s) successfully!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -123,7 +103,7 @@ class _AddProductTabState extends State<AddProductTab> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error picking image: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Error picking images: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -138,10 +118,12 @@ class _AddProductTabState extends State<AddProductTab> {
         _priceController.text.trim().isEmpty ||
         _stockController.text.trim().isEmpty ||
         finalCategory.isEmpty ||
-        _selectedImageBytes == null) {
+        _descriptionController.text.trim().isEmpty ||
+        _featuresController.text.trim().isEmpty || // NEW: Validate Features
+        _selectedImages.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please fill all fields and select a valid 1024x1024 image!'),
+          content: Text('Please fill all fields and select at least one image!'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -154,29 +136,31 @@ class _AddProductTabState extends State<AddProductTab> {
       final double price = double.tryParse(_priceController.text.trim()) ?? 0.0;
       final int stock = int.tryParse(_stockController.text.trim()) ?? 0;
 
-      // 1. Upload image to Firebase Storage with explicit metadata
-      final String fileName = 'prod_${DateTime.now().millisecondsSinceEpoch}.png';
-      final Reference storageRef = FirebaseStorage.instance
-          .ref()
-          .child('product_images')
-          .child(fileName);
+      // 1. Upload all images to Firebase Storage in parallel
+      List<Future<String>> uploadTasks = [];
 
-      final SettableMetadata metadata = SettableMetadata(
-        contentType: 'image/png',
-      );
+      for (int i = 0; i < _selectedImages.length; i++) {
+        final Uint8List bytes = _selectedImages[i]['bytes'];
+        final String fileName = 'prod_${DateTime.now().millisecondsSinceEpoch}_$i.png';
+        final Reference storageRef = FirebaseStorage.instance
+            .ref()
+            .child('product_images')
+            .child(fileName);
 
-      final UploadTask uploadTask = storageRef.putData(_selectedImageBytes!, metadata);
+        final SettableMetadata metadata = SettableMetadata(contentType: 'image/png');
 
-      // Await completion with a 20-second timeout safeguard
-      final TaskSnapshot snapshot = await uploadTask.timeout(
-        const Duration(seconds: 20),
+        uploadTasks.add(
+            storageRef.putData(bytes, metadata).then((snapshot) => snapshot.ref.getDownloadURL())
+        );
+      }
+
+      // Wait for all uploads to complete
+      final List<String> downloadUrls = await Future.wait(uploadTasks).timeout(
+        const Duration(seconds: 60),
         onTimeout: () {
-          uploadTask.cancel();
-          throw Exception('Image upload timed out. Check your network or Firebase Storage rules.');
+          throw Exception('Image uploads timed out. Check your network.');
         },
       );
-
-      final String downloadUrl = await snapshot.ref.getDownloadURL();
 
       // 2. Save document to Firestore
       await FirebaseFirestore.instance.collection('products').add({
@@ -185,9 +169,11 @@ class _AddProductTabState extends State<AddProductTab> {
         'price': price,
         'stock': stock,
         'category': finalCategory,
-        'imageUrl': downloadUrl,
+        'imageUrl': downloadUrls.first,
+        'imageUrls': downloadUrls,
         'createdAt': FieldValue.serverTimestamp(),
-        'description': _descriptionController.text.trim(),
+        'description': _descriptionController.text.trim(), // Used for Overview tab
+        'features': _featuresController.text.trim(), // NEW: Used for Features tab
       }).timeout(
         const Duration(seconds: 15),
         onTimeout: () {
@@ -201,19 +187,17 @@ class _AddProductTabState extends State<AddProductTab> {
       _stockController.clear();
       _customCategoryController.clear();
       _descriptionController.clear();
+      _featuresController.clear(); // NEW: Clear Features input
 
       setState(() {
-        _selectedImageBytes = null;
-        _selectedImageName = null;
-        _imageWidth = null;
-        _imageHeight = null;
+        _selectedImages.clear();
         _selectedCategory = _categories.first;
       });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Product and 1024x1024 image uploaded successfully!'),
+            content: Text('Product and images uploaded successfully!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -224,7 +208,7 @@ class _AddProductTabState extends State<AddProductTab> {
           SnackBar(
             content: Text('Failed to upload product: $e'),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -320,7 +304,7 @@ class _AddProductTabState extends State<AddProductTab> {
           ],
           const SizedBox(height: 16),
 
-          // Local Image Picker & Preview Container
+          // Local Image Picker & Preview Container (Supports up to 5)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -328,7 +312,7 @@ class _AddProductTabState extends State<AddProductTab> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: _selectedImageBytes != null ? Colors.green : Colors.grey.shade300,
+                color: _selectedImages.isNotEmpty ? Colors.green : Colors.grey.shade300,
                 width: 1.5,
               ),
             ),
@@ -338,12 +322,12 @@ class _AddProductTabState extends State<AddProductTab> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Column(
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Product Image', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                        SizedBox(height: 2),
-                        Text('Requirement: Exactly 1024 x 1024 pixels', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        Text('Product Images (${_selectedImages.length}/5)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        const SizedBox(height: 2),
+                        const Text('Upload up to 5 images for this product', style: TextStyle(fontSize: 12, color: Colors.grey)),
                       ],
                     ),
                     ElevatedButton.icon(
@@ -352,61 +336,55 @@ class _AddProductTabState extends State<AddProductTab> {
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                       ),
-                      onPressed: _isUploading ? null : _pickAndValidateImage,
+                      onPressed: (_isUploading || _selectedImages.length >= 5) ? null : _pickImages,
                       icon: const Icon(Icons.photo_library, size: 18),
-                      label: Text(_selectedImageBytes == null ? 'Choose File' : 'Change File'),
+                      label: const Text('Add Images'),
                     ),
                   ],
                 ),
-                if (_selectedImageBytes != null) ...[
+
+                // Show grid of selected images
+                if (_selectedImages.isNotEmpty) ...[
                   const Divider(height: 24),
-                  Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.memory(
-                          _selectedImageBytes!,
-                          width: 80,
-                          height: 80,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _selectedImageName ?? 'selected_image.png',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: _selectedImages.asMap().entries.map((entry) {
+                      int index = entry.key;
+                      Map<String, dynamic> imgData = entry.value;
+
+                      return Stack(
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey.shade300),
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                const Icon(Icons.check_circle, color: Colors.green, size: 16),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'Resolution: ${_imageWidth}x${_imageHeight} px (Valid)',
-                                  style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.w600),
-                                ),
-                              ],
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.memory(
+                                imgData['bytes'],
+                                width: 90,
+                                height: 90,
+                                fit: BoxFit.cover,
+                              ),
                             ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.red),
-                        tooltip: 'Remove Image',
-                        onPressed: () => setState(() {
-                          _selectedImageBytes = null;
-                          _selectedImageName = null;
-                          _imageWidth = null;
-                          _imageHeight = null;
-                        }),
-                      )
-                    ],
+                          ),
+                          Positioned(
+                            top: -8,
+                            right: -8,
+                            child: IconButton(
+                              icon: const Icon(Icons.cancel, color: Colors.red, size: 22),
+                              onPressed: () {
+                                setState(() {
+                                  _selectedImages.removeAt(index);
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
                   ),
                 ],
               ],
@@ -414,12 +392,25 @@ class _AddProductTabState extends State<AddProductTab> {
           ),
           const SizedBox(height: 16),
 
-          // Product Description
+          // Product Description (Overview)
           TextField(
             controller: _descriptionController,
             maxLines: 3,
             decoration: const InputDecoration(
-              labelText: 'Product Description',
+              labelText: 'Product Description (Overview)',
+              alignLabelWithHint: true,
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // NEW: Feature Description (Features)
+          TextField(
+            controller: _featuresController,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Feature Description (Key Specs/Bullet Points)',
+              alignLabelWithHint: true,
               border: OutlineInputBorder(),
             ),
           ),

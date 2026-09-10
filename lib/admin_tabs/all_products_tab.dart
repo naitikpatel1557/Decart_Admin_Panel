@@ -12,6 +12,7 @@ class _AllProductsTabState extends State<AllProductsTab> {
   final Color brandColor = const Color(0xFF0F4C5C);
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  String _selectedCategoryFilter = 'All';
 
   @override
   void dispose() {
@@ -29,6 +30,7 @@ class _AllProductsTabState extends State<AllProductsTab> {
           (data['imageUrls'] != null && (data['imageUrls'] as List).isNotEmpty ? data['imageUrls'][0] : ''),
     );
     final descriptionController = TextEditingController(text: data['description'] ?? '');
+    final featuresController = TextEditingController(text: data['features'] ?? '');
 
     showDialog(
       context: context,
@@ -67,7 +69,13 @@ class _AllProductsTabState extends State<AllProductsTab> {
                     TextField(
                       controller: descriptionController,
                       maxLines: 3,
-                      decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(labelText: 'Description (Overview)', border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: featuresController,
+                      maxLines: 4,
+                      decoration: const InputDecoration(labelText: 'Feature Description (Key Specs)', border: OutlineInputBorder()),
                     ),
                   ],
                 ),
@@ -92,6 +100,7 @@ class _AllProductsTabState extends State<AllProductsTab> {
                         'category': categoryController.text.trim(),
                         'imageUrl': imageUrlController.text.trim(),
                         'description': descriptionController.text.trim(),
+                        'features': featuresController.text.trim(),
                         'updatedAt': FieldValue.serverTimestamp(),
                       });
 
@@ -172,29 +181,84 @@ class _AllProductsTabState extends State<AllProductsTab> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Search Header
+        // Search & Category Filter Header
         Container(
           padding: const EdgeInsets.all(16.0),
           color: Colors.white,
-          child: TextField(
-            controller: _searchController,
-            onChanged: (val) => setState(() => _searchQuery = val.toLowerCase().trim()),
-            decoration: InputDecoration(
-              hintText: 'Search products by title or category...',
-              prefixIcon: const Icon(Icons.search, color: Colors.grey),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                icon: const Icon(Icons.clear, size: 20, color: Colors.grey),
-                onPressed: () {
-                  _searchController.clear();
-                  setState(() => _searchQuery = '');
+          child: Column(
+            children: [
+              TextField(
+                controller: _searchController,
+                onChanged: (val) => setState(() => _searchQuery = val.toLowerCase().trim()),
+                decoration: InputDecoration(
+                  hintText: 'Search products by title...',
+                  prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                    icon: const Icon(Icons.clear, size: 20, color: Colors.grey),
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() => _searchQuery = '');
+                    },
+                  )
+                      : null,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // --- DYNAMIC CATEGORY FILTER DROPDOWN ---
+              StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance.collection('products').snapshots(),
+                builder: (context, snapshot) {
+                  Set<String> categories = {'All'};
+                  if (snapshot.hasData) {
+                    for (var doc in snapshot.data!.docs) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      final cat = data['category']?.toString().trim();
+                      if (cat != null && cat.isNotEmpty) {
+                        categories.add(cat);
+                      }
+                    }
+                  }
+
+                  if (!categories.contains(_selectedCategoryFilter)) {
+                    _selectedCategoryFilter = 'All';
+                  }
+
+                  return Container(
+                    height: 45,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                      color: Colors.grey.shade50,
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedCategoryFilter,
+                        isExpanded: true,
+                        icon: const Icon(Icons.arrow_drop_down, color: Colors.grey),
+                        style: const TextStyle(fontSize: 14, color: Colors.black87),
+                        items: categories.map((cat) {
+                          return DropdownMenuItem<String>(
+                            value: cat,
+                            child: Text(cat == 'All' ? 'All Categories' : cat),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() => _selectedCategoryFilter = val);
+                          }
+                        },
+                      ),
+                    ),
+                  );
                 },
-              )
-                  : null,
-              contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-            ),
+              ),
+            ],
           ),
         ),
 
@@ -224,17 +288,21 @@ class _AllProductsTabState extends State<AllProductsTab> {
                 return timeB.compareTo(timeA);
               });
 
+              // Filter by search query and selected category
               final filteredDocs = docs.where((doc) {
                 final data = doc.data() as Map<String, dynamic>;
                 final title = (data['title'] ?? data['name'] ?? data['productName'] ?? '').toString().toLowerCase();
-                final category = (data['category'] ?? '').toString().toLowerCase();
-                if (_searchQuery.isEmpty) return true;
-                return title.contains(_searchQuery) || category.contains(_searchQuery);
+                final category = (data['category'] ?? '').toString().trim();
+
+                bool matchesSearch = _searchQuery.isEmpty || title.contains(_searchQuery);
+                bool matchesCategory = _selectedCategoryFilter == 'All' || category == _selectedCategoryFilter;
+
+                return matchesSearch && matchesCategory;
               }).toList();
 
               if (filteredDocs.isEmpty) {
                 return Center(
-                  child: Text(_searchQuery.isEmpty ? 'No products found in catalog.' : 'No products match your search.', style: const TextStyle(color: Colors.grey)),
+                  child: Text(_searchQuery.isEmpty && _selectedCategoryFilter == 'All' ? 'No products found in catalog.' : 'No products match your filters.', style: const TextStyle(color: Colors.grey)),
                 );
               }
 
